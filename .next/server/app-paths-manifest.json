@@ -1,0 +1,9 @@
+{
+  "/products/page": "app/products/page.js",
+  "/suppliers/page": "app/suppliers/page.js",
+  "/receipts/page": "app/receipts/page.js",
+  "/adjustments/page": "app/adjustments/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/deliveries/page": "app/deliveries/page.js",
+  "/dashboard/page": "app/dashboard/page.js"
+}
