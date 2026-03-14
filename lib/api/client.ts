@@ -1,256 +1,337 @@
+// Mock API — no backend required
+// Every function simulates a real API call with a small delay
+
+import {
+  MOCK_DASHBOARD, MOCK_PRODUCTS, MOCK_CATEGORIES, MOCK_WAREHOUSES,
+  MOCK_LOCATIONS, MOCK_SUPPLIERS, MOCK_RECEIPTS, MOCK_DELIVERIES,
+  MOCK_TRANSFERS, MOCK_ADJUSTMENTS, MOCK_MOVEMENTS, MOCK_STOCK_BALANCES,
+  MOCK_USERS, paginate, filterBySearch,
+} from './mock-data'
 import type {
-  AuthTokens, User, Product, Warehouse, Location, Supplier,
-  Operation, StockBalance, StockMovement, DashboardKPIs,
-  PaginatedResponse, QueryParams, Category,
-} from '@/types';
+  AuthTokens, Product, Warehouse, Location, Supplier,
+  Operation, OperationStatus, QueryParams,
+} from '@/types'
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+// In-memory mutable state so creates/updates persist during the session
+let products = [...MOCK_PRODUCTS]
+let warehouses = [...MOCK_WAREHOUSES]
+let locations = [...MOCK_LOCATIONS]
+let suppliers = [...MOCK_SUPPLIERS]
+let receipts = [...MOCK_RECEIPTS]
+let deliveries = [...MOCK_DELIVERIES]
+let transfers = [...MOCK_TRANSFERS]
+let adjustments = [...MOCK_ADJUSTMENTS]
 
-// ─── Token management ─────────────────────────────────────────
-let accessToken: string | null = null;
+const delay = (ms = 400) => new Promise(r => setTimeout(r, ms))
+let idCounter = 100
 
-export function setAccessToken(token: string | null) {
-  accessToken = token;
-}
+function makeId() { return `mock-${++idCounter}` }
+function makeRef(prefix: string) { return `${prefix}-${String(Math.floor(Math.random() * 9000) + 1000)}` }
 
-export function getAccessToken() {
-  return accessToken;
-}
-
-// ─── Core fetch wrapper ───────────────────────────────────────
-async function apiFetch<T>(
-  path: string,
-  options: RequestInit = {},
-  retry = true,
-): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
-  };
-
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
-  }
-
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-
-  if (res.status === 401 && retry) {
-    const refreshed = await refreshTokens();
-    if (refreshed) return apiFetch<T>(path, options, false);
-    window.location.href = '/auth/login';
-    throw new Error('Unauthorized');
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(err.message || 'Request failed');
-  }
-
-  return res.json();
-}
-
-function buildQuery(params: QueryParams = {}): string {
-  const p = new URLSearchParams();
-  if (params.page) p.set('page', String(params.page));
-  if (params.limit) p.set('limit', String(params.limit));
-  if (params.search) p.set('search', params.search);
-  if (params.sort) p.set('sort', params.sort);
-  if (params.order) p.set('order', params.order);
-  if (params.filter) {
-    Object.entries(params.filter).forEach(([k, v]) => { if (v) p.set(k, v); });
-  }
-  const s = p.toString();
-  return s ? `?${s}` : '';
-}
+// ─── Token management (no-op in mock) ────────────────────────
+export function setAccessToken(_token: string | null) {}
+export function getAccessToken() { return 'mock-token' }
 
 // ─── Auth ─────────────────────────────────────────────────────
 export const authApi = {
-  login: (email: string, password: string) =>
-    apiFetch<AuthTokens>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    }),
-
-  signup: (data: { email: string; password: string; firstName: string; lastName: string }) =>
-    apiFetch<AuthTokens>('/auth/signup', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  refresh: (refreshToken: string) =>
-    apiFetch<AuthTokens>('/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({ refreshToken }),
-    }),
-
-  logout: (refreshToken: string) =>
-    apiFetch<void>('/auth/logout', {
-      method: 'POST',
-      body: JSON.stringify({ refreshToken }),
-    }),
-
-  forgotPassword: (email: string) =>
-    apiFetch<void>('/auth/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    }),
-
-  resetPassword: (token: string, otp: string, password: string) =>
-    apiFetch<void>('/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ token, otp, password }),
-    }),
-};
-
-async function refreshTokens(): Promise<boolean> {
-  try {
-    const rt = localStorage.getItem('refreshToken');
-    if (!rt) return false;
-    const tokens = await authApi.refresh(rt);
-    setAccessToken(tokens.accessToken);
-    localStorage.setItem('refreshToken', tokens.refreshToken);
-    return true;
-  } catch {
-    return false;
-  }
+  login: async (email: string, _password: string): Promise<AuthTokens> => {
+    await delay(600)
+    const user = MOCK_USERS.find(u => u.email === email) || MOCK_USERS[0]
+    return { accessToken: 'mock-access', refreshToken: 'mock-refresh', user }
+  },
+  signup: async (data: any): Promise<AuthTokens> => {
+    await delay(600)
+    const user = { id: makeId(), ...data, role: 'INVENTORY_MANAGER' as const, isActive: true, createdAt: new Date().toISOString() }
+    return { accessToken: 'mock-access', refreshToken: 'mock-refresh', user }
+  },
+  refresh: async (): Promise<AuthTokens> => {
+    return { accessToken: 'mock-access', refreshToken: 'mock-refresh', user: MOCK_USERS[0] }
+  },
+  logout: async () => { await delay(200) },
+  forgotPassword: async () => { await delay(400) },
+  resetPassword: async () => { await delay(400) },
 }
 
 // ─── Dashboard ────────────────────────────────────────────────
 export const dashboardApi = {
-  getKPIs: () => apiFetch<DashboardKPIs>('/dashboard'),
-};
+  getKPIs: async () => { await delay(300); return MOCK_DASHBOARD },
+}
 
 // ─── Products ─────────────────────────────────────────────────
 export const productsApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Product>>(`/products${buildQuery(params)}`),
-
-  get: (id: string) => apiFetch<Product>(`/products/${id}`),
-
-  create: (data: Partial<Product>) =>
-    apiFetch<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
-
-  update: (id: string, data: Partial<Product>) =>
-    apiFetch<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-
-  delete: (id: string) =>
-    apiFetch<void>(`/products/${id}`, { method: 'DELETE' }),
-
-  getMovements: (id: string, params?: QueryParams) =>
-    apiFetch<PaginatedResponse<StockMovement>>(`/products/${id}/movements${buildQuery(params)}`),
-};
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = [...products]
+    if (params?.search) items = filterBySearch(items, params.search, ['name', 'sku'])
+    if (params?.filter?.categoryId) items = items.filter(p => p.category?.id === params.filter!.categoryId)
+    if (params?.filter?.status === 'low') items = items.filter(p => p.totalStock <= p.reorderLevel)
+    if (params?.sort === 'name') items.sort((a, b) => a.name.localeCompare(b.name))
+    if (params?.sort === 'totalStock') items.sort((a, b) => a.totalStock - b.totalStock)
+    return paginate(items, params?.page, params?.limit)
+  },
+  get: async (id: string) => { await delay(200); return products.find(p => p.id === id)! },
+  create: async (data: Partial<Product>) => {
+    await delay(500)
+    const item = { id: makeId(), totalStock: 0, createdAt: new Date().toISOString(), ...data } as Product
+    products = [...products, item]
+    return item
+  },
+  update: async (id: string, data: Partial<Product>) => {
+    await delay(400)
+    products = products.map(p => p.id === id ? { ...p, ...data } : p)
+    return products.find(p => p.id === id)!
+  },
+  delete: async (id: string) => { await delay(400); products = products.filter(p => p.id !== id) },
+  getMovements: async (_id: string, params?: QueryParams) => {
+    await delay(300); return paginate(MOCK_MOVEMENTS, params?.page, params?.limit)
+  },
+}
 
 export const categoriesApi = {
-  list: () => apiFetch<Category[]>('/categories'),
-  create: (name: string) =>
-    apiFetch<Category>('/categories', { method: 'POST', body: JSON.stringify({ name }) }),
-};
+  list: async () => { await delay(200); return MOCK_CATEGORIES },
+  create: async (name: string) => { await delay(300); return { id: makeId(), name } },
+}
 
 // ─── Warehouses ───────────────────────────────────────────────
 export const warehousesApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Warehouse>>(`/warehouses${buildQuery(params)}`),
-
-  get: (id: string) => apiFetch<Warehouse>(`/warehouses/${id}`),
-
-  create: (data: Partial<Warehouse>) =>
-    apiFetch<Warehouse>('/warehouses', { method: 'POST', body: JSON.stringify(data) }),
-
-  update: (id: string, data: Partial<Warehouse>) =>
-    apiFetch<Warehouse>(`/warehouses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-
-  getStock: (id: string) =>
-    apiFetch<StockBalance[]>(`/warehouses/${id}/stock`),
-};
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = [...warehouses]
+    if (params?.search) items = filterBySearch(items, params.search, ['name', 'code', 'city'])
+    return paginate(items, params?.page, params?.limit)
+  },
+  get: async (id: string) => { await delay(200); return warehouses.find(w => w.id === id)! },
+  create: async (data: Partial<Warehouse>) => {
+    await delay(500)
+    const item = { id: makeId(), isActive: true, locationCount: 0, productCount: 0, createdAt: new Date().toISOString(), ...data } as Warehouse
+    warehouses = [...warehouses, item]
+    return item
+  },
+  update: async (id: string, data: Partial<Warehouse>) => {
+    await delay(400)
+    warehouses = warehouses.map(w => w.id === id ? { ...w, ...data } : w)
+    return warehouses.find(w => w.id === id)!
+  },
+  getStock: async () => { await delay(300); return MOCK_STOCK_BALANCES },
+}
 
 export const locationsApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Location>>(`/locations${buildQuery(params)}`),
-
-  create: (data: Partial<Location>) =>
-    apiFetch<Location>('/locations', { method: 'POST', body: JSON.stringify(data) }),
-};
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = [...locations]
+    if (params?.search) items = filterBySearch(items, params.search, ['name', 'code'])
+    if (params?.filter?.warehouseId) items = items.filter(l => l.warehouseId === params.filter!.warehouseId)
+    return paginate(items, params?.page, params?.limit)
+  },
+  create: async (data: Partial<Location>) => {
+    await delay(500)
+    const wh = warehouses.find(w => w.id === data.warehouseId)
+    const item = { id: makeId(), createdAt: new Date().toISOString(), warehouse: wh, ...data } as Location
+    locations = [...locations, item]
+    return item
+  },
+}
 
 // ─── Suppliers ────────────────────────────────────────────────
 export const suppliersApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Supplier>>(`/suppliers${buildQuery(params)}`),
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = [...suppliers]
+    if (params?.search) items = filterBySearch(items, params.search, ['name', 'code', 'email'])
+    if (params?.filter?.isActive === 'true') items = items.filter(s => s.isActive)
+    if (params?.filter?.isActive === 'false') items = items.filter(s => !s.isActive)
+    return paginate(items, params?.page, params?.limit)
+  },
+  create: async (data: Partial<Supplier>) => {
+    await delay(500)
+    const item = { id: makeId(), isActive: true, createdAt: new Date().toISOString(), ...data } as Supplier
+    suppliers = [...suppliers, item]
+    return item
+  },
+  update: async (id: string, data: Partial<Supplier>) => {
+    await delay(400)
+    suppliers = suppliers.map(s => s.id === id ? { ...s, ...data } : s)
+    return suppliers.find(s => s.id === id)!
+  },
+}
 
-  create: (data: Partial<Supplier>) =>
-    apiFetch<Supplier>('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+// ─── Operations helpers ───────────────────────────────────────
+function enrichOp(op: Operation): Operation {
+  return {
+    ...op,
+    warehouse: warehouses.find(w => w.id === op.warehouseId) || op.warehouse,
+    supplier: op.supplierId ? suppliers.find(s => s.id === op.supplierId) || op.supplier : undefined,
+  }
+}
 
-  update: (id: string, data: Partial<Supplier>) =>
-    apiFetch<Supplier>(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-};
+function advanceStatus(current: OperationStatus, action: string): OperationStatus {
+  const map: Record<string, OperationStatus> = {
+    confirm: 'CONFIRMED', validate: 'RECEIVED',
+    pick: 'PICKING', pack: 'PACKED', ship: 'SHIPPED',
+    start: 'IN_PROGRESS', complete: 'COMPLETED',
+  }
+  return map[action] || current
+}
 
-// ─── Operations ───────────────────────────────────────────────
-export const operationsApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Operation>>(`/operations${buildQuery(params)}`),
-
-  get: (id: string) => apiFetch<Operation>(`/operations/${id}`),
-};
-
+// ─── Receipts ─────────────────────────────────────────────────
 export const receiptsApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Operation>>(`/receipts${buildQuery(params)}`),
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = receipts.map(enrichOp)
+    if (params?.search) items = filterBySearch(items, params.search, ['reference'])
+    if (params?.filter?.status) items = items.filter(o => o.status === params.filter!.status)
+    return paginate(items, params?.page, params?.limit)
+  },
+  create: async (data: any) => {
+    await delay(500)
+    const op: Operation = {
+      id: makeId(), reference: makeRef('REC'), type: 'RECEIPT', status: 'DRAFT',
+      warehouseId: data.warehouseId, warehouse: warehouses.find(w => w.id === data.warehouseId)!,
+      supplierId: data.supplierId, supplier: suppliers.find(s => s.id === data.supplierId),
+      scheduledDate: data.scheduledDate, notes: data.notes, lines: [],
+      createdBy: 'u1', createdAt: new Date().toISOString(),
+    }
+    receipts = [...receipts, op]
+    return op
+  },
+  confirm: async (id: string) => {
+    await delay(400)
+    receipts = receipts.map(r => r.id === id ? { ...r, status: 'CONFIRMED' as OperationStatus } : r)
+    return enrichOp(receipts.find(r => r.id === id)!)
+  },
+  validate: async (id: string) => {
+    await delay(400)
+    receipts = receipts.map(r => r.id === id ? { ...r, status: 'RECEIVED' as OperationStatus, completedAt: new Date().toISOString() } : r)
+    return enrichOp(receipts.find(r => r.id === id)!)
+  },
+}
 
-  create: (data: Partial<Operation>) =>
-    apiFetch<Operation>('/receipts', { method: 'POST', body: JSON.stringify(data) }),
-
-  confirm: (id: string) =>
-    apiFetch<Operation>(`/receipts/${id}/confirm`, { method: 'POST' }),
-
-  validate: (id: string) =>
-    apiFetch<Operation>(`/receipts/${id}/validate`, { method: 'POST' }),
-};
-
+// ─── Deliveries ───────────────────────────────────────────────
 export const deliveriesApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Operation>>(`/deliveries${buildQuery(params)}`),
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = deliveries.map(enrichOp)
+    if (params?.search) items = filterBySearch(items, params.search, ['reference'])
+    if (params?.filter?.status) items = items.filter(o => o.status === params.filter!.status)
+    return paginate(items, params?.page, params?.limit)
+  },
+  create: async (data: any) => {
+    await delay(500)
+    const op: Operation = {
+      id: makeId(), reference: makeRef('DEL'), type: 'DELIVERY', status: 'DRAFT',
+      warehouseId: data.warehouseId, warehouse: warehouses.find(w => w.id === data.warehouseId)!,
+      scheduledDate: data.scheduledDate, notes: data.notes, lines: [],
+      createdBy: 'u1', createdAt: new Date().toISOString(),
+    }
+    deliveries = [...deliveries, op]
+    return op
+  },
+  pick: async (id: string) => {
+    await delay(400)
+    deliveries = deliveries.map(d => d.id === id ? { ...d, status: 'PICKING' as OperationStatus } : d)
+    return enrichOp(deliveries.find(d => d.id === id)!)
+  },
+  pack: async (id: string) => {
+    await delay(400)
+    deliveries = deliveries.map(d => d.id === id ? { ...d, status: 'PACKED' as OperationStatus } : d)
+    return enrichOp(deliveries.find(d => d.id === id)!)
+  },
+  ship: async (id: string) => {
+    await delay(400)
+    deliveries = deliveries.map(d => d.id === id ? { ...d, status: 'SHIPPED' as OperationStatus, completedAt: new Date().toISOString() } : d)
+    return enrichOp(deliveries.find(d => d.id === id)!)
+  },
+}
 
-  create: (data: Partial<Operation>) =>
-    apiFetch<Operation>('/deliveries', { method: 'POST', body: JSON.stringify(data) }),
-
-  pick: (id: string) =>
-    apiFetch<Operation>(`/deliveries/${id}/pick`, { method: 'POST' }),
-
-  pack: (id: string) =>
-    apiFetch<Operation>(`/deliveries/${id}/pack`, { method: 'POST' }),
-
-  ship: (id: string) =>
-    apiFetch<Operation>(`/deliveries/${id}/ship`, { method: 'POST' }),
-};
-
+// ─── Transfers ────────────────────────────────────────────────
 export const transfersApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Operation>>(`/transfers${buildQuery(params)}`),
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = transfers.map(enrichOp)
+    if (params?.search) items = filterBySearch(items, params.search, ['reference'])
+    if (params?.filter?.status) items = items.filter(o => o.status === params.filter!.status)
+    return paginate(items, params?.page, params?.limit)
+  },
+  create: async (data: any) => {
+    await delay(500)
+    const op: Operation = {
+      id: makeId(), reference: makeRef('TRF'), type: 'TRANSFER', status: 'DRAFT',
+      warehouseId: data.fromWarehouseId, warehouse: warehouses.find(w => w.id === data.fromWarehouseId)!,
+      scheduledDate: data.scheduledDate, notes: data.notes, lines: [],
+      createdBy: 'u1', createdAt: new Date().toISOString(),
+    }
+    transfers = [...transfers, op]
+    return op
+  },
+  start: async (id: string) => {
+    await delay(400)
+    transfers = transfers.map(t => t.id === id ? { ...t, status: 'IN_PROGRESS' as OperationStatus } : t)
+    return enrichOp(transfers.find(t => t.id === id)!)
+  },
+  complete: async (id: string) => {
+    await delay(400)
+    transfers = transfers.map(t => t.id === id ? { ...t, status: 'COMPLETED' as OperationStatus, completedAt: new Date().toISOString() } : t)
+    return enrichOp(transfers.find(t => t.id === id)!)
+  },
+}
 
-  create: (data: Partial<Operation>) =>
-    apiFetch<Operation>('/transfers', { method: 'POST', body: JSON.stringify(data) }),
-
-  start: (id: string) =>
-    apiFetch<Operation>(`/transfers/${id}/start`, { method: 'POST' }),
-
-  complete: (id: string) =>
-    apiFetch<Operation>(`/transfers/${id}/complete`, { method: 'POST' }),
-};
-
+// ─── Adjustments ─────────────────────────────────────────────
 export const adjustmentsApi = {
-  list: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<Operation>>(`/adjustments${buildQuery(params)}`),
-
-  create: (data: Partial<Operation>) =>
-    apiFetch<Operation>('/adjustments', { method: 'POST', body: JSON.stringify(data) }),
-};
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    let items = adjustments.map(enrichOp)
+    if (params?.search) items = filterBySearch(items, params.search, ['reference'])
+    if (params?.filter?.status) items = items.filter(o => o.status === params.filter!.status)
+    return paginate(items, params?.page, params?.limit)
+  },
+  create: async (data: any) => {
+    await delay(500)
+    const product = products.find(p => p.id === data.productId)
+    const location = locations.find(l => l.id === data.locationId)
+    const op: Operation = {
+      id: makeId(), reference: makeRef('ADJ'), type: 'ADJUSTMENT', status: 'COMPLETED',
+      warehouseId: data.warehouseId, warehouse: warehouses.find(w => w.id === data.warehouseId)!,
+      notes: data.notes,
+      lines: [{
+        id: makeId(), productId: data.productId, product: product!,
+        locationId: data.locationId, location: location!,
+        quantityDemand: Number(data.systemQty), quantityDone: Number(data.physicalQty),
+      }],
+      createdBy: 'u1', createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+    }
+    adjustments = [...adjustments, op]
+    // update product stock
+    if (product) {
+      const delta = Number(data.physicalQty) - Number(data.systemQty)
+      products = products.map(p => p.id === data.productId ? { ...p, totalStock: Math.max(0, p.totalStock + delta) } : p)
+    }
+    return op
+  },
+}
 
 // ─── Inventory ────────────────────────────────────────────────
 export const inventoryApi = {
-  stock: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<StockBalance>>(`/inventory/stock${buildQuery(params)}`),
+  stock: async (params?: QueryParams) => {
+    await delay(300); return paginate(MOCK_STOCK_BALANCES, params?.page, params?.limit)
+  },
+  ledger: async (params?: QueryParams) => {
+    await delay(300); return paginate(MOCK_MOVEMENTS, params?.page, params?.limit)
+  },
+  lowStock: async () => {
+    await delay(200); return products.filter(p => p.totalStock <= p.reorderLevel)
+  },
+}
 
-  ledger: (params?: QueryParams) =>
-    apiFetch<PaginatedResponse<StockMovement>>(`/inventory/ledger${buildQuery(params)}`),
-
-  lowStock: () => apiFetch<Product[]>('/inventory/low-stock'),
-};
+// ─── operationsApi (generic) ──────────────────────────────────
+export const operationsApi = {
+  list: async (params?: QueryParams) => {
+    await delay(300)
+    const all = [...receipts, ...deliveries, ...transfers, ...adjustments].map(enrichOp)
+    return paginate(all, params?.page, params?.limit)
+  },
+  get: async (id: string) => {
+    await delay(200)
+    const all = [...receipts, ...deliveries, ...transfers, ...adjustments]
+    return enrichOp(all.find(o => o.id === id)!)
+  },
+}

@@ -1,9 +1,9 @@
 {
-  "/products/page": "app/products/page.js",
-  "/suppliers/page": "app/suppliers/page.js",
-  "/receipts/page": "app/receipts/page.js",
   "/adjustments/page": "app/adjustments/page.js",
-  "/settings/page": "app/settings/page.js",
-  "/deliveries/page": "app/deliveries/page.js",
-  "/dashboard/page": "app/dashboard/page.js"
+  "/(protected)/products/page": "app/(protected)/products/page.js",
+  "/(protected)/suppliers/page": "app/(protected)/suppliers/page.js",
+  "/(protected)/receipts/page": "app/(protected)/receipts/page.js",
+  "/(protected)/deliveries/page": "app/(protected)/deliveries/page.js",
+  "/(protected)/settings/page": "app/(protected)/settings/page.js",
+  "/(protected)/transfers/page": "app/(protected)/transfers/page.js"
 }
